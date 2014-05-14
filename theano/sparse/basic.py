@@ -2408,7 +2408,6 @@ less_than_s_d = LessThanSD()
 
 
 class GreaterThanSS(__ComparisonOpSS):
-
     """
     :param x:first compared sparse matrix
     :param y:second compared sparse matrix
@@ -2423,7 +2422,6 @@ greater_than_s_s = GreaterThanSS()
 
 
 class GreaterThanSD(__ComparisonOpSD):
-
     """
     :param x:sparse matrix
     :param y:dense matrix
@@ -2438,7 +2436,6 @@ greater_than_s_d = GreaterThanSD()
 
 
 class LessEqualSS(__ComparisonOpSS):
-
     """
     :param x:first compared sparse matrix
     :param y:second compared sparse matrix
@@ -2453,7 +2450,6 @@ less_equal_s_s = LessEqualSS()
 
 
 class LessEqualSD(__ComparisonOpSD):
-
     """
     :param x:sparse matrix
     :param y:dense matrix
@@ -2468,7 +2464,6 @@ less_equal_s_d = LessEqualSD()
 
 
 class GreaterEqualSS(__ComparisonOpSS):
-
     """
     :param x:first compared sparse matrix
     :param y:second compared sparse matrix
@@ -2483,7 +2478,6 @@ greater_equal_s_s = GreaterEqualSS()
 
 
 class GreaterEqualSD(__ComparisonOpSD):
-
     """
     :param x:sparse matrix
     :param y:dense matrix
