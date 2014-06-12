@@ -5024,5 +5024,5 @@ def ptp(a, axis=None):
     return out
 
 
-def power(x,y):
+def power(x, y):
     return x**y
