@@ -893,12 +893,15 @@ class VM_Linker(link.LocalLinker):
         if self.allow_gc:
             post_thunk_clear = []
             for node in order:
+                n_idx = order.index(node)
                 clear_after_this_thunk = []
                 for input in node.inputs:
-                    if ((input in computed)
-                            and (input not in fgraph.outputs)
-                            and (node == last_user[input])):
-                        clear_after_this_thunk.append(storage_map[input])
+                    for new_node in order[n_idx: ]:
+                        if input.ndim == 0 and input not in new_node.outputs:
+                            if ((input in computed)
+                                    and (input not in fgraph.outputs)
+                                    and (node == last_user[input])):
+                                clear_after_this_thunk.append(storage_map[input])
                 post_thunk_clear.append(clear_after_this_thunk)
         else:
             post_thunk_clear = None
