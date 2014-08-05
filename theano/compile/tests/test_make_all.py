@@ -14,8 +14,9 @@ def test_make_all():
 	# z = ((a + b) * c)
 	test_mode = theano.Mode(linker='vm', optimizer='None')
 	f = theano.function(x, z, mode=test_mode)
-	print "ok"
 
+	print f([1], [2], [3])
+	
 if __name__ == "__main__":
 	test_make_all()
 
