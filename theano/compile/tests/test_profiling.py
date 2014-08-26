@@ -12,11 +12,13 @@ import theano.tensor as T
 
 def test_profiling():
 
-    old1 = theano.config.profile
-    old2 = theano.config.profile_memory
+    config1 = theano.config.profile
+    config2 = theano.config.profile_memory
+    config3 = theano.config.profiling.min_peak_memory
     try:
         theano.config.profile = True
         theano.config.profile_memory = True
+        theano.config.profiling.min_peak_memory = True
 
         x = [T.dvector("val%i" % i) for i in range(3)]
 
@@ -42,13 +44,15 @@ def test_profiling():
 
         # regression testing for future algo speed up
         the_string = buf.getvalue()
-        # assert "Max if linker=cvm(default): 8208KB (16400KB)" in the_string
-        # assert "Minimum peak from all valid apply node order is 8192KB" in the_string
-        print the_string
-        
+        lines1 = [l for l in the_string.split("\n") if "Max if linker" in l]
+        lines2 = [l for l in the_string.split("\n") if "Minimum peak" in l]
+        assert "Max if linker=cvm(default): 8224KB (16408KB)" in the_string, (lines1, lines2)
+        assert "Minimum peak from all valid apply node order is 8208KB" in the_string, (lines1, lines2)
+
     finally:
-        theano.config.profile = old1
-        theano.config.profile_memory = old2
+        theano.config.profile = config1
+        theano.config.profile_memory = config2
+        theano.config.profiling.min_peak_memory = config3
 
 
 if __name__ == '__main__':
