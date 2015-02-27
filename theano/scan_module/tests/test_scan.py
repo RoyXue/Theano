@@ -4,6 +4,7 @@ import sys
 from tempfile import mkdtemp
 import time
 import unittest
+import copy
 
 import cPickle
 import numpy
@@ -1909,20 +1910,25 @@ class T_Scan(unittest.TestCase):
         gparams = theano.grad(cost, params)
         updates = [(param, param - gparam * learning_rate)
                    for param, gparam in zip(params, gparams)]
+        mode = copy.copy(theano.compile.get_default_mode())
+        mode.check_py_code = False
         learn_rnn_fn = theano.function(inputs=[x, t],
                                        outputs=cost,
-                                       updates=updates)
+                                       updates=updates,
+                                       mode=mode)
         eval_rnn_fn = theano.function(inputs=[x],
-                                      outputs=y)
+                                      outputs=y,
+                                      mode=mode)
 
         # artificial data
-        x_v = numpy.arange(0., 100., 0.21, dtype=theano.config.floatX)
+        x_v = numpy.arange(0., 10.49, 0.21, dtype=theano.config.floatX)
         x_v = x_v.reshape(len(x_v), 1)
         s_v = numpy.sin(x_v)
         t_v = numpy.roll(s_v, -1)[:-1]
         s_v = s_v[:-1]
         for i in xrange(100):
             cost = learn_rnn_fn(s_v, t_v)
+            print i, cost
         pred = eval_rnn_fn(s_v)
         assert cost < 0.02
 
@@ -3778,23 +3784,24 @@ class T_Scan(unittest.TestCase):
     @attr('slow')
     def test_hessian_bug_grad_grad_two_scans(self):
         #Bug reported by Bitton Tenessi
+        # NOTE : The test to reproduce the bug reported by Bitton Tenessi
+        # was modified from its original version to be faster to run.
 
-        W_flat = tensor.fvector(name='W')
-        W_flat.tag.test_value = numpy.ones((8,), dtype=numpy.float32)
-        W = W_flat.reshape((2, 2, 2))
+        W = tensor.fvector(name='W')
+        n_steps = tensor.iscalar(name='Nb_steps')
 
-        def loss_outer(i_outer, sum_outer, W):
+        def loss_outer(sum_outer, W):
 
-            def loss_inner(i_inner, sum_inner, W):
+            def loss_inner(sum_inner, W):
 
-                return sum_inner + (W**2).sum().sum().sum()
+                return sum_inner + (W**2).sum()
 
             result_inner, _ = theano.scan(
                 fn=loss_inner,
                 outputs_info=tensor.as_tensor_variable(
                     numpy.asarray(0, dtype=numpy.float32)),
-                sequences=tensor.arange(1, dtype='int32'),
                 non_sequences=[W],
+                n_steps=1,
             )
             return sum_outer + result_inner[-1]
 
@@ -3802,15 +3809,15 @@ class T_Scan(unittest.TestCase):
             fn=loss_outer,
             outputs_info=tensor.as_tensor_variable(
                 numpy.asarray(0, dtype=numpy.float32)),
-            sequences=tensor.arange(1, dtype='int32'),
             non_sequences=[W],
+            n_steps=n_steps,
         )
 
         cost = result_outer[-1]
-        H = theano.gradient.hessian(cost, W_flat)
+        H = theano.gradient.hessian(cost, W)
         print >> sys.stderr, "."
-        f = theano.function([W_flat], H)
-        f(numpy.ones((8,), dtype='float32'))
+        f = theano.function([W, n_steps], H)
+        f(numpy.ones((8,), dtype='float32'), 1)
 
 
 def test_speed():

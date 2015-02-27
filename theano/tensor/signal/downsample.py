@@ -43,6 +43,10 @@ def max_pool_2d(input, ds, ignore_border=False, st=None):
     """
     if input.ndim < 2:
         raise NotImplementedError('max_pool_2d requires a dimension >= 2')
+    if input.ndim == 4:
+        op = DownsampleFactorMax(ds, ignore_border, st=st)
+        output = op(input)
+        return output
 
     # extract image dimensions
     img_shape = input.shape[-2:]
@@ -193,13 +197,11 @@ class DownsampleFactorMax(Op):
                 'DownsampleFactorMax requires 4D input for now')
         z_shape = self.out_shape(x.shape, self.ds, self.ignore_border, self.st)
         if (z[0] is None) or (z[0].shape != z_shape):
-            z[0] = numpy.zeros(self.out_shape(x.shape, self.ds,
-                                              self.ignore_border, self.st))
-            z[0] = theano._asarray(z[0], dtype=x.dtype)
+            z[0] = numpy.empty(self.out_shape(x.shape, self.ds,
+                                              self.ignore_border, self.st),
+                               dtype=x.dtype)
         zz = z[0]
 
-        ## zz needs to be initialized with -inf for the following to work
-        zz -= numpy.inf
         #number of pooling output rows
         pr = zz.shape[-2]
         #number of pooling output cols
@@ -217,11 +219,8 @@ class DownsampleFactorMax(Op):
                     for c in xrange(pc):
                         col_st = c * st1
                         col_end = __builtin__.min(col_st + ds1, img_cols)
-                        for row_ind in xrange(row_st, row_end):
-                            for col_ind in xrange(col_st, col_end):
-                                zz[n, k, r, c] = \
-                                    __builtin__.max(zz[n, k, r, c],
-                                                    x[n, k, row_ind, col_ind])
+                        zz[n, k, r, c] = x[
+                            n, k, row_st:row_end, col_st:col_end].max()
 
     def infer_shape(self, node, in_shapes):
         shp = self.out_shape(in_shapes[0], self.ds,
@@ -232,14 +231,15 @@ class DownsampleFactorMax(Op):
         x, = inp
         gz, = grads
         maxout = self(x)
-        if self.st != self.ds:
-            return [theano.gradient.grad_not_implemented(self, 0, x)]
         return [DownsampleFactorMaxGrad(self.ds,
                                         ignore_border=self.ignore_border,
                                         st=self.st)(
                                             x, maxout, gz)]
 
     def c_code(self, node, name, inp, out, sub):
+        # No implementation is currently for the case where
+        # the stride size and the pooling size are different.
+        # An exception is raised for such a case.
         if self.ds != self.st:
            raise theano.gof.utils.MethodNotDefined()
         x, = inp
@@ -374,16 +374,14 @@ class DownsampleFactorMaxGrad(Op):
     def grad(self, inp, grads):
         x, maxout, gz = inp
         ggx, = grads
-        if self.st != self.ds:
-            return [theano.gradient.grad_not_implemented(self, 0, x),
-                    theano.gradient.grad_not_implemented(self, 1, maxout),
-                    theano.gradient.grad_not_implemented(self, 2, gz)]
         return [theano.tensor.zeros_like(x),
                 theano.tensor.zeros_like(maxout),
                 DownsampleFactorMaxGradGrad(
                     self.ds, ignore_border=self.ignore_border, st=self.st)(x, maxout, ggx)]
 
     def c_code(self, node, name, inp, out, sub):
+        if self.ds != self.st:
+           raise theano.gof.utils.MethodNotDefined()
         x, z, gz = inp
         gx, = out
         fail = sub['fail']
@@ -591,8 +589,8 @@ class DownsampleFactorMaxGradGrad(Op):
         z_shape = self.out_shape(x.shape, self.ds, self.ignore_border, self.st)
         if (z[0] is None) or (z[0].shape != z_shape):
             z[0] = numpy.zeros(self.out_shape(x.shape, self.ds,
-                                              self.ignore_border, self.st))
-            z[0] = theano._asarray(z[0], dtype=x.dtype)
+                                              self.ignore_border, self.st),
+                               dtype=x.dtype)
         ggz = z[0]
 
         #number of pooling output rows

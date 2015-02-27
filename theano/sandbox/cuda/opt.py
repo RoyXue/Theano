@@ -35,7 +35,7 @@ from theano.sandbox.cuda.blas import gpu_gemv_no_inplace
 from theano.sandbox.cuda.blas import gpu_ger_inplace
 from theano.sandbox.cuda.blas import gpu_ger_no_inplace
 from theano.sandbox.cuda.blas import (GpuDownsampleFactorMax,
-        GpuDownsampleFactorMaxGrad)
+        GpuDownsampleFactorMaxGrad, GpuDownsampleFactorMaxGradGrad)
 from theano.sandbox.cuda.nnet import (
         GpuCrossentropySoftmaxArgmax1HotWithBias,
         GpuCrossentropySoftmax1HotWithBiasDx,
@@ -300,21 +300,18 @@ def local_gpu_elemwise_1(node):
 
 
 @register_opt()
-@local_optimizer([tensor.Split, gpu_from_host])
+@local_optimizer([tensor.Split])
 def local_gpu_split(node):
     if isinstance(node.op, tensor.Split):
         input = node.inputs[0]
-        if input.owner and isinstance(input.owner.op, HostFromGpu):
+        outs_clients = reduce(list.__add__,
+                              [out.clients for out in node.outputs])
+        if (input.owner and isinstance(input.owner.op, HostFromGpu) or
+            any([c != 'output' and isinstance(c.op, GpuFromHost) for c, idx
+                 in outs_clients])):
             new_op = GpuSplit(node.op.len_splits)
             split_res = new_op(gpu_from_host(input), *node.inputs[1:])
             return [host_from_gpu(o) for o in split_res]
-    if isinstance(node.op, GpuFromHost):
-        host_input = node.inputs[0]
-        if host_input.owner and isinstance(host_input.owner.op, tensor.Split):
-            split_node = host_input.owner
-            new_op = GpuSplit(split_node.op.len_splits)
-            return [new_op(gpu_from_host(split_node.inputs[0]),
-                           *split_node.inputs[1:])[host_input.index]]
     return False
 
 
@@ -1195,6 +1192,23 @@ def local_conv_fft_full(node):
         return
 
 
+def values_eq_approx_high_tol(a, b):
+    """This fct is needed to don't have DebugMode raise useless
+    error due to ronding error.
+
+    This happen as We reduce on the two last dimensions, so this
+    can raise the absolute error if the number of element we
+    reduce on is significant.
+
+    """
+    assert a.ndim == 4
+    atol = None
+    if a.shape[-1] * a.shape[-2] > 100:
+        # For float32 the default atol is 1e-5
+        atol = 3e-5
+    return CudaNdarrayType.values_eq_approx(a, b, atol=atol)
+
+
 @local_optimizer([gpu_from_host, conv.ConvOp])
 def local_gpu_conv(node):
     """
@@ -1244,22 +1258,6 @@ def local_gpu_conv(node):
                 return make_graph
         return ret
 
-    def values_eq_approx(a, b):
-        """This fct is needed to don't have DebugMode raise useless
-        error due to ronding error.
-
-        This happen as We reduce on the two last dimensions, so this
-        can raise the absolute error if the number of element we
-        reduce on is significant.
-
-        """
-        assert a.ndim == 4
-        atol = None
-        if a.shape[-1] * a.shape[-2] > 100:
-            #For float32 the default atol is 1e-5
-            atol = 3e-5
-        return CudaNdarrayType.values_eq_approx(a, b, atol=atol)
-
     if isinstance(node.op, GpuFromHost):
         #gpu_from_host(conv) -> gpu_conv(gpu_from_host)
         host_input = node.inputs[0]
@@ -1272,7 +1270,7 @@ def local_gpu_conv(node):
                            gpu_from_host(kern))
             out = tensor.patternbroadcast(out,
                                           node.outputs[0].broadcastable)
-            out.values_eq_approx = values_eq_approx
+            out.values_eq_approx = values_eq_approx_high_tol
             # in some case the ConvOp broadcast the last 2 dimensions
             # differently then the gpu ConvOp
             return [out]
@@ -1291,7 +1289,7 @@ def local_gpu_conv(node):
             out = tensor.patternbroadcast(
                 host_from_gpu(out),
                 node.outputs[0].broadcastable)
-            out.values_eq_approx = values_eq_approx
+            out.values_eq_approx = values_eq_approx_high_tol
             # in some case the ConvOp broadcast the last 2 dimensions
             # differently then the gpu ConvOp
             return [out]
@@ -1623,6 +1621,19 @@ def local_gpu_downsample_factor_max_grad(node):
                                               gpu_from_host(gz)))]
 
 
+@register_opt()
+@local_optimizer([downsample.DownsampleFactorMaxGradGrad])
+def local_gpu_downsample_factor_max_grad_grad(node):
+    if isinstance(node.op, downsample.DownsampleFactorMaxGradGrad):
+        x, z, gx = node.inputs
+        if (x.owner and isinstance(x.owner.op, HostFromGpu)):
+            op = GpuDownsampleFactorMaxGradGrad(node.op.ds,
+                                                node.op.ignore_border)
+            return [host_from_gpu(op(x.owner.inputs[0],
+                                     gpu_from_host(z),
+                                     gpu_from_host(gx)))]
+
+
 from theano.sandbox.cuda.basic_ops import gpu_join, GpuJoin
 
 
@@ -1741,7 +1752,7 @@ def get_device_type_sizes():
         cuda_ndarray = theano.sandbox.cuda.cuda_ndarray.cuda_ndarray
         t = cuda_ndarray.ptr_int_size()
         gpu_ptr_size, cpu_ptr_size, int_size, gpu_int_size = t
-        assert int_size == gpu_int_size
+        assert int_size == gpu_int_size, (int_size, gpu_int_size)
         del gpu_int_size
         del t
     except Exception, e:
@@ -1750,7 +1761,9 @@ def get_device_type_sizes():
             "This could cause less GpuElemwise fused together.\n"
             "%s") % e)
 
-    rval = get_device_type_sizes.rval = locals()
+    rval = get_device_type_sizes.rval = dict(gpu_ptr_size=gpu_ptr_size,
+                                             cpu_ptr_size=cpu_ptr_size,
+                                             int_size=int_size)
     return rval
 
 
