@@ -1190,7 +1190,8 @@ class ShapeFeature(object):
             sx = [sx[dim_x]]
         if dim_y is not None:
             sy = [sy[dim_y]]
-        assert len(sx) == len(sy)
+        if len(sx) != len(sy):
+            return False
 
         for dx, dy in zip(sx, sy):
             if dx is dy:
